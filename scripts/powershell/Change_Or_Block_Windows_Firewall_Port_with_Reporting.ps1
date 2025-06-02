@@ -87,13 +87,26 @@ function Send-TeamsAlert {
 Import-Module NetSecurity -ErrorAction Stop
 Write-Log "=== Starting firewall port $Port rule audit ==="
 
-$activeProfiles = Get-NetConnectionProfile | Where-Object {$_.IPv4Connectivity -ne 'Disconnected'}
-$profileNames = $activeProfiles | Select-Object -ExpandProperty NetworkCategory
+$activeProfiles = Get-NetConnectionProfile | Where-Object { $_.IPv4Connectivity -ne 'Disconnected' }
+
+# Map profile names to valid enums
+$profileMap = @{
+    DomainAuthenticated = 'Domain'
+    Domain              = 'Domain'
+    Private             = 'Private'
+    Public              = 'Public'
+}
+$profileNames = $activeProfiles |
+    Select-Object -ExpandProperty NetworkCategory |
+    ForEach-Object { $profileMap[$_] } |
+    Where-Object { $_ -ne $null } |
+    Select-Object -Unique
 
 if (-not $profileNames) {
-    Write-Log "No active firewall profiles detected. Exiting."
-    return
+    Write-Log "No active firewall profiles detected. Defaulting to 'Any'."
+    $profileNames = @('Any')
 }
+
 
 Write-Log "Active firewall profiles: $($profileNames -join ', ')"
 
@@ -121,7 +134,7 @@ $rules = Get-NetFirewallRule | Where-Object {
 $changesMade = @()
 
 if ($rules) {
-    Write-Log "Found existing firewall rules affecting TCP port $Port:"
+    Write-Log "Found existing firewall rules affecting TCP port ${Port}:"
     foreach ($r in $rules) {
         Write-Log " - [$($r.Direction)] $($r.Name) => $($r.Action)"
     }
@@ -141,7 +154,7 @@ if ($rules) {
     }
 } else {
     Write-Log "No rules found for TCP port $Port in active profiles."
-    $create = Read-Host "Create bi-directional BLOCK rule for port $Port? (Y/N)"
+    $create = Read-Host "Create bi-directional BLOCK rule for port $ Port? (Y/N)"
     if ($create -match '^[Yy]') {
         $baseName = "Block_Port_$Port"
         foreach ($dir in @('Inbound', 'Outbound')) {
